@@ -164,3 +164,4 @@ esp_err_t pca9685_update_pwm_values(pca9685_handle_t *dev_handle, uint16_t bitma
 * @return esp_err_t ESP_OK on success
 */
 esp_err_t pca9685_fetch_modes_reg(pca9685_handle_t *dev_handle);
+

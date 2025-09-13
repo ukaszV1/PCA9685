@@ -33,6 +33,7 @@ static const char *TAG = "pca9685";
 #define MODE1_RESTART_BIT   (1 << 7)
 #define MODE1_SLEEP_BIT (1 << 4)
 #define MODE1_SUB_CNT 3
+#define MODE1_AI (1<<5)
 
 #define MODE2_INVRT_BIT   (1 << 4)
 #define MODE2_OUTDRV_BIT  (1 << 2)
@@ -71,7 +72,7 @@ esp_err_t pca9685_init(pca9685_handle_t *handle, i2c_master_bus_handle_t *i2c_bu
     };
     //add device to bus
     RETURN_ON_ERROR(i2c_master_bus_add_device(*i2c_bus, &dev_cfg, &handle->i2c_dev_handle));
-
+    RETURN_ON_ERROR(update_reg(handle->i2c_dev_handle, REG_MODE1, MODE1_AI, MODE1_AI));
     //setup handle 
     handle->sub_value[0] = PCA9685_SB1_DEFAULT;
     handle->sub_value[1] = PCA9685_SB2_DEFAULT;
@@ -199,7 +200,7 @@ esp_err_t pca9685_set_pwm_frequency(pca9685_handle_t *dev_handle, uint16_t freq)
 {
     CHECK_ARG(dev_handle && freq != 0);
     //calculate prescaler from freq
-    uint8_t prescaler = (uint8_t)(round((float)PCA9685_INTERNAL_FREQ / (PCA9685_MAX_PWM_VALUE * freq)) - 1);
+    uint8_t prescaler = (uint8_t)(round((float)PCA9685_INTERNAL_FREQ / (PCA9685_MAX_PWM_VALUE * freq))) - 1;
     //check if fits in limits
     CHECK_ARG(prescaler >=  MIN_PRESCALER);
 
