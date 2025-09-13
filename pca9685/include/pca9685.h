@@ -6,8 +6,8 @@
 #include <esp_err.h>
 #include <freertos/FreeRTOS.h>
 
-#define PCA9685_I2C_DEFAULT_FREQUENCY   400000 
-#define PCA9685_MAX_PWM_VALUE           4095
+#define PCA9685_I2C_DEFAULT_FREQUENCY   400000 //1MHz not working right now
+#define PCA9685_MAX_PWM_VALUE           4095   
 #define PCA9685_TIMEOUT_MS              100
 #define PCA9685_CHANNEL_ALL             16
 
@@ -35,12 +35,12 @@ typedef struct {
     i2c_master_bus_handle_t  i2c_bus_handle;
     i2c_master_dev_handle_t  i2c_dev_handle;
     
-    uint16_t freq;
-    uint8_t prescale;
-    uint16_t channel_pwm_value[PCA9685_CHANNEL_ALL];
+    uint16_t freq;     //global frequency(calculated form frequency)
+    uint8_t prescale;  //global prescale
+    uint16_t channel_pwm_value[PCA9685_CHANNEL_ALL];  //stores all pwm values, updated when using set_pwm_value
     
     uint8_t sub_value[3];
-    uint8_t allcalladr;
+    uint8_t allcalladr;  //0x70 default
 
     union {
         uint8_t reg_val;
@@ -152,16 +152,24 @@ esp_err_t pca9685_set_pwm_value(pca9685_handle_t *dev_handle,
 /**
 * @brief Loads pwm values selected by bitmask from current handle table values
 * @param dev_handle handle of device
-* @param bitmask (0 or 0xFFFF) for all else update selected by bimask only
+* @param bitmask (0 or 0xFFFF) for all
 * @return esp_err_t ESP_OK on success
 */
 esp_err_t pca9685_update_pwm_values(pca9685_handle_t *dev_handle, uint16_t bitmask);
 
 
 /**
-* @brief Fetch register values, store in hadle struct
+* @brief Read register values, store in hadle struct
 * @param dev_handle handle of device
 * @return esp_err_t ESP_OK on success
 */
-esp_err_t pca9685_fetch_modes_reg(pca9685_handle_t *dev_handle);
+esp_err_t pca9685_read_modes_reg(pca9685_handle_t *dev_handle);
+
+/**
+* @brief Write mode1 or mode2 from handle to device (read first recommended)
+* @param dev_handle handle of device
+* @param reg mode(1 or 2)
+* @return esp_err_t ESP_OK on success
+*/
+esp_err_t pca9685_write_modes_reg(pca9685_handle_t *dev_handle, uint8_t reg);
 

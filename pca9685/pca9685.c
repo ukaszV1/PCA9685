@@ -4,14 +4,13 @@
 #include <driver/i2c_master.h>
 #include "freertos/task.h"
 
-static const char *TAG = "pca9685";
-
 #define CHECK_ARG(VAL) do { if (!(VAL)) return ESP_ERR_INVALID_ARG; } while (0)
 #define RETURN_ON_ERROR(x) do {        \
     esp_err_t __err_rc = (x);          \
     if (__err_rc != ESP_OK) return __err_rc; \
 } while (0)
-#define REG_LED_N(x)  (REG_LEDX + (x) * 4)
+
+#define REG_LED_N(x)  (REG_LED_START  + (x) * 4)  //generate correct register adr
 
 #define PCA9685_INTERNAL_FREQ 25000000UL
 #define WAKEUP_DELAY_US 500
@@ -26,7 +25,7 @@ static const char *TAG = "pca9685";
 #define REG_MODE2      0x01
 #define REG_SUBADR1    0x02
 #define REG_ALLCALLADR 0x05
-#define REG_LEDX       0x06
+#define REG_LED_START  0x06
 #define REG_ALL_LED    0xFA
 #define REG_PRE_SCALE  0xFE
 
@@ -45,11 +44,10 @@ static const char *TAG = "pca9685";
 #define MAX_SUBADDR   2
 
 
-static inline esp_err_t update_reg(i2c_master_dev_handle_t dev_handle, uint8_t reg, uint8_t mask, uint8_t val)
+static inline esp_err_t _update_reg(i2c_master_dev_handle_t dev_handle, uint8_t reg, uint8_t mask, uint8_t val)
 {
     uint8_t r;
-    //read current register values
-    //only one register at time
+    //read current register values only one register at time
     RETURN_ON_ERROR(i2c_master_transmit_receive(dev_handle, &reg, 1, &r, 1, PCA9685_TIMEOUT_MS));
     //cler and set
     r = (r & ~mask) | val;
@@ -72,8 +70,8 @@ esp_err_t pca9685_init(pca9685_handle_t *handle, i2c_master_bus_handle_t *i2c_bu
     };
     //add device to bus
     RETURN_ON_ERROR(i2c_master_bus_add_device(*i2c_bus, &dev_cfg, &handle->i2c_dev_handle));
-    RETURN_ON_ERROR(update_reg(handle->i2c_dev_handle, REG_MODE1, MODE1_AI, MODE1_AI));
-    //setup handle 
+    RETURN_ON_ERROR(_update_reg(handle->i2c_dev_handle, REG_MODE1, MODE1_AI, MODE1_AI));
+    //setup handle
     handle->sub_value[0] = PCA9685_SB1_DEFAULT;
     handle->sub_value[1] = PCA9685_SB2_DEFAULT;
     handle->sub_value[2] = PCA9685_SB3_DEFAULT;
@@ -97,7 +95,7 @@ esp_err_t pca9685_set_subaddress(pca9685_handle_t *dev_handle, uint8_t num, uint
     RETURN_ON_ERROR(i2c_master_transmit(dev_handle->i2c_dev_handle, (uint8_t[]){reg, data}, 2, PCA9685_TIMEOUT_MS));
     uint8_t mask = 1 << (MODE1_SUB_CNT - num);
     //update register to set enable bit
-    RETURN_ON_ERROR(update_reg(dev_handle->i2c_dev_handle, REG_MODE1, mask, en ? mask : 0));
+    RETURN_ON_ERROR(_update_reg(dev_handle->i2c_dev_handle, REG_MODE1, mask, en ? mask : 0));
     //update handle
     dev_handle->mode1.reg_val = (dev_handle->mode1.reg_val & ~(1 << (MODE1_SUB_CNT - num))) | (en << (MODE1_SUB_CNT - num));
     dev_handle->sub_value[num] = address_val;
@@ -129,7 +127,7 @@ esp_err_t pca9685_restart(pca9685_handle_t *dev_handle)
 }
 
 
-esp_err_t pca9685_fetch_modes_reg(pca9685_handle_t *dev_handle)
+esp_err_t pca9685_read_modes_reg(pca9685_handle_t *dev_handle)
 {
     CHECK_ARG(dev_handle);
     //read two modes registers and store data in handle
@@ -146,7 +144,8 @@ esp_err_t pca9685_sleep(pca9685_handle_t *dev_handle, bool sleep)
     CHECK_ARG(dev_handle);
     uint8_t val = sleep ? MODE1_SLEEP_BIT : 0;
     //set to sleep by updateing registers
-    ESP_ERROR_CHECK(update_reg(dev_handle->i2c_dev_handle, REG_MODE1, (uint8_t)MODE1_SLEEP_BIT, val));
+    ESP_ERROR_CHECK(_update_reg(dev_handle->i2c_dev_handle, REG_MODE1, (uint8_t)MODE1_SLEEP_BIT, val));\
+    if (!sleep) {esp_rom_delay_us(WAKEUP_DELAY_US);}
     return ESP_OK;
 }
 
@@ -155,7 +154,7 @@ esp_err_t pca9685_set_output_inverted(pca9685_handle_t *dev_handle, bool inverte
     CHECK_ARG(dev_handle);
     uint8_t val = inverted ? MODE2_INVRT_BIT : 0;
     //update registers 
-    RETURN_ON_ERROR(update_reg(dev_handle->i2c_dev_handle, REG_MODE2, MODE2_INVRT_BIT, val));
+    RETURN_ON_ERROR(_update_reg(dev_handle->i2c_dev_handle, REG_MODE2, MODE2_INVRT_BIT, val));
     return ESP_OK;
 }
 
@@ -163,7 +162,7 @@ esp_err_t pca9685_set_output_open_drain(pca9685_handle_t *dev_handle, bool od)
 {
     CHECK_ARG(dev_handle);
     uint8_t val = od ? 0 : MODE2_OUTDRV_BIT; // open-drain = 0, totem-pole = 1
-    RETURN_ON_ERROR(update_reg(dev_handle->i2c_dev_handle, REG_MODE2, MODE2_OUTDRV_BIT, val));
+    RETURN_ON_ERROR(_update_reg(dev_handle->i2c_dev_handle, REG_MODE2, MODE2_OUTDRV_BIT, val));
     return ESP_OK;
 }
 
@@ -175,11 +174,11 @@ esp_err_t pca9685_set_prescaler(pca9685_handle_t *dev_handle, uint8_t prescaler_
 
     RETURN_ON_ERROR(i2c_master_transmit_receive(dev_handle->i2c_dev_handle, (uint8_t[]){ REG_MODE1 }, 1, &mode, 1, PCA9685_TIMEOUT_MS));
 
-    RETURN_ON_ERROR(update_reg(dev_handle->i2c_dev_handle, REG_MODE1, MODE1_SLEEP_BIT, MODE1_SLEEP_BIT));
+    RETURN_ON_ERROR(_update_reg(dev_handle->i2c_dev_handle, REG_MODE1, MODE1_SLEEP_BIT, MODE1_SLEEP_BIT));
 
     RETURN_ON_ERROR(i2c_master_transmit(dev_handle->i2c_dev_handle, (uint8_t[]){ REG_PRE_SCALE, prescaler_val }, 2, PCA9685_TIMEOUT_MS));
 
-    RETURN_ON_ERROR(update_reg(dev_handle->i2c_dev_handle, REG_MODE1, MODE1_SLEEP_BIT, 0));
+    RETURN_ON_ERROR(_update_reg(dev_handle->i2c_dev_handle, REG_MODE1, MODE1_SLEEP_BIT, 0));
 
     dev_handle->prescale = prescaler_val;
     dev_handle->mode1.reg_val = (mode & ~MODE1_SLEEP_BIT);
@@ -236,7 +235,7 @@ esp_err_t pca9685_set_pwm_value(pca9685_handle_t *dev_handle, uint8_t channel, u
 esp_err_t pca9685_update_pwm_values(pca9685_handle_t *dev_handle, uint16_t bitmask)
 {
     CHECK_ARG(dev_handle);
-
+    //Full update
     if (bitmask == 0 || bitmask == 0xFFFF)
     {
         uint8_t buf[1 + PCA9685_CHANNEL_ALL * 4];
@@ -260,7 +259,7 @@ esp_err_t pca9685_update_pwm_values(pca9685_handle_t *dev_handle, uint16_t bitma
 
     for (uint8_t ch = 0; ch < PCA9685_CHANNEL_ALL; ch++)
     {
-        if (!(bitmask & (1 << ch))) continue;
+        if (!(bitmask & (1 << ch))) {continue;}
 
         uint16_t val = dev_handle->channel_pwm_value[ch];
         bool full_on  = (val == PCA9685_MAX_PWM_VALUE);
@@ -278,4 +277,15 @@ esp_err_t pca9685_update_pwm_values(pca9685_handle_t *dev_handle, uint16_t bitma
     }
 
     return ESP_OK;
+}
+
+esp_err_t pca9685_write_modes_reg(pca9685_handle_t *dev_handle, uint8_t reg){
+    CHECK_ARG(dev_handle);
+    if (reg == 1){
+        return i2c_master_transmit(dev_handle->i2c_dev_handle,(uint8_t[]){REG_MODE1, dev_handle->mode1.reg_val}, 2, PCA9685_TIMEOUT_MS); 
+    }
+    else if (reg == 2){
+        return i2c_master_transmit(dev_handle->i2c_dev_handle,(uint8_t[]){REG_MODE2, dev_handle->mode2.reg_val}, 2, PCA9685_TIMEOUT_MS);    
+    }
+    else{return ESP_ERR_INVALID_ARG;}
 }
